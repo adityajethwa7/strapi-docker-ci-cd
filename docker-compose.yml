@@ -1,0 +1,69 @@
+services:
+  strapi:
+    image: node:18-alpine
+    container_name: strapi
+    restart: unless-stopped
+    environment:
+      DATABASE_CLIENT: postgres
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: strapi
+      DATABASE_USERNAME: strapi
+      DATABASE_PASSWORD: strapi
+      NODE_ENV: development
+    volumes:
+      - ./app:/srv/app
+    ports:
+      - '1337:1337'
+    command: >
+      sh -c "
+        cd /srv/app &&
+        if [ ! -f package.json ]; then
+          npx create-strapi-app@latest . --quickstart --no-run --skip-cloud --dbclient=postgres --dbhost=postgres --dbport=5432 --dbname=strapi --dbusername=strapi --dbpassword=strapi &&
+          npm install
+        fi &&
+        npm run develop
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - strapi
+
+  postgres:
+    image: postgres:14-alpine
+    container_name: strapi-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: strapi
+      POSTGRES_USER: strapi
+      POSTGRES_PASSWORD: strapi
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U strapi"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - strapi
+
+  nginx:
+    image: nginx:alpine
+    container_name: strapi-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - strapi
+    networks:
+      - strapi
+
+volumes:
+  postgres-data:
+
+networks:
+  strapi:
+    driver: bridge
