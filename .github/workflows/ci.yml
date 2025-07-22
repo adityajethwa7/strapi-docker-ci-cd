@@ -5,7 +5,7 @@ on:
     branches: [ main ]
     paths:
       - 'app/**'
-      - 'Dockerfile.prod'  # Changed from Dockerfile
+      - 'Dockerfile.prod'
       - '.github/workflows/ci.yml'
   workflow_dispatch:
 
@@ -45,7 +45,7 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: .
-        file: ./Dockerfile.prod  # Changed from ./Dockerfile
+        file: ./Dockerfile.prod
         push: true
         tags: |
           ${{ env.IMAGE_NAME }}:${{ steps.image.outputs.tag }}
@@ -60,7 +60,7 @@ jobs:
         echo "DEPLOYMENT_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> deployment-info.env
 
     - name: Upload deployment info
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4  # Changed from v3 to v4
       with:
         name: deployment-info
         path: deployment-info.env
@@ -68,6 +68,6 @@ jobs:
 
     - name: Summary
       run: |
-        echo "## Docker Image Published" >> $GITHUB_STEP_SUMMARY
+        echo "## 🚀 Docker Image Published" >> $GITHUB_STEP_SUMMARY
         echo "**Image:** \`${{ env.IMAGE_NAME }}:${{ steps.image.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
         echo "**Also tagged as:** \`${{ env.IMAGE_NAME }}:latest\`" >> $GITHUB_STEP_SUMMARY
