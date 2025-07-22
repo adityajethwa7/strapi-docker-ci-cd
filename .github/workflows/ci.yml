@@ -1,0 +1,68 @@
+name: CI - Build and Push Docker Image
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'app/**'
+      - 'Dockerfile.prod'
+      - '.github/workflows/ci.yml'
+
+env:
+  DOCKER_IMAGE: ${{ secrets.DOCKER_USERNAME }}/strapi-app
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v4
+      with:
+        images: ${{ env.DOCKER_IMAGE }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        file: ./Dockerfile.prod
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache
+        cache-to: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache,mode=max
+
+    - name: Create deployment artifact
+      run: |
+        echo "IMAGE_TAG=${{ steps.meta.outputs.tags }}" > deployment.txt
+        echo "IMAGE_DIGEST=${{ steps.build.outputs.digest }}" >> deployment.txt
+        echo "DEPLOYMENT_TIME=$(date)" >> deployment.txt
+
+    - name: Upload deployment artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: deployment-info
+        path: deployment.txt

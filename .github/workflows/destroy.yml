@@ -1,0 +1,51 @@
+name: Destroy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" to confirm infrastructure destruction'
+        required: true
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'destroy'
+    defaults:
+      run:
+        working-directory: ./terraform-strapi
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+
+    - name: Create terraform.tfvars
+      run: |
+        cat > terraform.tfvars << EOF
+        aws_region    = "${{ env.AWS_REGION }}"
+        instance_type = "t3.micro"
+        key_name      = "${{ secrets.TF_VAR_key_name }}"
+        docker_image  = "${{ secrets.DOCKER_USERNAME }}/strapi-app:latest"
+        EOF
+
+    - name: Terraform Init
+      run: terraform init
+
+    - name: Terraform Destroy
+      run: terraform destroy -auto-approve
+
+    - name: Confirmation
+      run: echo "Infrastructure has been destroyed successfully!"

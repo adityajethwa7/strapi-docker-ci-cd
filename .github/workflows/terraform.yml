@@ -1,0 +1,135 @@
+name: CD - Deploy with Terraform
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - staging
+      image_tag:
+        description: 'Docker image tag to deploy (leave empty for latest)'
+        required: false
+        default: 'latest'
+
+env:
+  TF_VERSION: '1.5.0'
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
+jobs:
+  terraform-deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./terraform-strapi
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+
+    - name: Create terraform.tfvars
+      run: |
+        cat > terraform.tfvars << EOF
+        aws_region    = "${{ env.AWS_REGION }}"
+        instance_type = "t3.micro"
+        key_name      = "${{ secrets.TF_VAR_key_name }}"
+        docker_image  = "${{ secrets.DOCKER_USERNAME }}/strapi-app:${{ github.event.inputs.image_tag || 'latest' }}"
+        EOF
+
+    - name: Terraform Init
+      run: terraform init
+
+    - name: Terraform Validate
+      run: terraform validate
+
+    - name: Terraform Plan
+      id: plan
+      run: terraform plan -out=tfplan
+
+    - name: Terraform Apply
+      if: github.ref == 'refs/heads/main'
+      run: terraform apply -auto-approve tfplan
+
+    - name: Get Terraform Outputs
+      id: outputs
+      run: |
+        echo "instance_ip=$(terraform output -raw instance_public_ip)" >> $GITHUB_OUTPUT
+        echo "instance_dns=$(terraform output -raw instance_public_dns)" >> $GITHUB_OUTPUT
+
+    - name: Wait for Instance to be Ready
+      run: |
+        echo "Waiting for instance to be ready..."
+        sleep 180  # Wait 3 minutes for user-data to complete
+
+    - name: Verify Deployment
+      run: |
+        INSTANCE_IP="${{ steps.outputs.outputs.instance_ip }}"
+        echo "Testing Strapi deployment at http://$INSTANCE_IP"
+        
+        # Test if Strapi is responding
+        max_attempts=10
+        attempt=1
+        
+        while [ $attempt -le $max_attempts ]; do
+          echo "Attempt $attempt of $max_attempts"
+          
+          if curl -f -s -o /dev/null -w "%{http_code}" "http://$INSTANCE_IP/_health" | grep -q "204"; then
+            echo "Strapi is healthy and responding!"
+            break
+          else
+            echo "⏳ Waiting for Strapi to start..."
+            sleep 30
+          fi
+          
+          attempt=$((attempt + 1))
+        done
+        
+        if [ $attempt -gt $max_attempts ]; then
+          echo "Strapi failed to start after $max_attempts attempts"
+          exit 1
+        fi
+
+    - name: Create Deployment Summary
+      if: success()
+      run: |
+        cat > deployment-summary.md << EOF
+        # Deployment Successful!
+        
+        ## Deployment Details
+        - **Environment**: ${{ github.event.inputs.environment }}
+        - **Image Tag**: ${{ github.event.inputs.image_tag || 'latest' }}
+        - **Instance IP**: ${{ steps.outputs.outputs.instance_ip }}
+        - **Strapi URL**: http://$\{\{ steps.outputs.outputs.instance_ip }}
+        - **Admin URL**: http://$\{\{ steps.outputs.outputs.instance_ip }}/admin
+        - **Deployment Time**: $(date)
+        
+        ## Next Steps
+        1. Access Strapi Admin at the URL above
+        2. Create your first admin user
+        3. Start building your content types!
+        EOF
+        
+        cat deployment-summary.md
+
+    - name: Upload Deployment Summary
+      if: success()
+      uses: actions/upload-artifact@v3
+      with:
+        name: deployment-summary
+        path: terraform-strapi/deployment-summary.md
