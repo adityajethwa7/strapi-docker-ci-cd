@@ -19,7 +19,8 @@ resource "aws_vpc" "strapi_vpc" {
   enable_dns_support   = true
 
   tags = {
-    Name = "strapi-vpc"
+    Name        = "strapi-vpc-${var.environment}"
+    Environment = var.environment
   }
 }
 
@@ -28,7 +29,8 @@ resource "aws_internet_gateway" "strapi_igw" {
   vpc_id = aws_vpc.strapi_vpc.id
 
   tags = {
-    Name = "strapi-igw"
+    Name        = "strapi-igw-${var.environment}"
+    Environment = var.environment
   }
 }
 
@@ -36,12 +38,18 @@ resource "aws_internet_gateway" "strapi_igw" {
 resource "aws_subnet" "strapi_subnet" {
   vpc_id                  = aws_vpc.strapi_vpc.id
   cidr_block              = "10.0.1.0/24"
-  availability_zone       = "${var.aws_region}a"
+  availability_zone       = data.aws_availability_zones.available.names[0]
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "strapi-subnet"
+    Name        = "strapi-subnet-${var.environment}"
+    Environment = var.environment
   }
+}
+
+# Data source to get available AZs
+data "aws_availability_zones" "available" {
+  state = "available"
 }
 
 # Create Route Table
@@ -54,7 +62,8 @@ resource "aws_route_table" "strapi_rt" {
   }
 
   tags = {
-    Name = "strapi-route-table"
+    Name        = "strapi-route-table-${var.environment}"
+    Environment = var.environment
   }
 }
 
@@ -66,7 +75,7 @@ resource "aws_route_table_association" "strapi_rta" {
 
 # Create Security Group
 resource "aws_security_group" "strapi_sg" {
-  name        = "strapi-security-group"
+  name        = "strapi-security-group-${var.environment}"
   description = "Security group for Strapi application"
   vpc_id      = aws_vpc.strapi_vpc.id
 
@@ -75,6 +84,7 @@ resource "aws_security_group" "strapi_sg" {
     to_port     = 22
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+    description = "SSH access"
   }
 
   ingress {
@@ -82,24 +92,22 @@ resource "aws_security_group" "strapi_sg" {
     to_port     = 80
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+    description = "HTTP access for Strapi"
   }
 
-  ingress {
-    from_port   = 1337
-    to_port     = 1337
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  # Removed port 1337 - not needed since we're mapping 80:1337 in docker-compose
 
   egress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow all outbound traffic"
   }
 
   tags = {
-    Name = "strapi-security-group"
+    Name        = "strapi-security-group-${var.environment}"
+    Environment = var.environment
   }
 }
 
@@ -131,14 +139,28 @@ resource "aws_instance" "strapi_server" {
   user_data = templatefile("${path.module}/user_data.sh", {
     docker_image = var.docker_image
     db_password  = var.db_password
+    environment  = var.environment
   })
 
   root_block_device {
-    volume_size = 8
-    volume_type = "gp2"
+    volume_size = 20  # Increased from 8 to 20 GB for better performance
+    volume_type = "gp3"  # Changed to gp3 for better performance
   }
 
   tags = {
-    Name = "strapi-server-free-tier"
+    Name        = "strapi-server-${var.environment}"
+    Environment = var.environment
+    Type        = "free-tier-eligible"
+  }
+}
+
+# Elastic IP for consistent public IP
+resource "aws_eip" "strapi_eip" {
+  instance = aws_instance.strapi_server.id
+  domain   = "vpc"
+
+  tags = {
+    Name        = "strapi-eip-${var.environment}"
+    Environment = var.environment
   }
 }

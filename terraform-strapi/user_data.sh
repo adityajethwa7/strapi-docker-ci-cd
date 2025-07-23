@@ -1,5 +1,11 @@
 #!/bin/bash
+set -e
 
+# Log all output
+exec > >(tee /var/log/user-data.log)
+exec 2>&1
+
+echo "Starting user data script..."
 
 # Update system
 apt-get update
@@ -88,8 +94,16 @@ networks:
     driver: bridge
 EOL
 
+# Set proper permissions
+chown -R ubuntu:ubuntu /home/ubuntu/strapi
+
 # Start the application
 docker-compose up -d
+
+# Wait for services to be healthy
+echo "Waiting for services to start..."
+sleep 30
+docker-compose ps
 
 # Create a systemd service to ensure Docker Compose starts on boot
 cat > /etc/systemd/system/strapi.service << 'EOL'
@@ -105,6 +119,8 @@ WorkingDirectory=/home/ubuntu/strapi
 ExecStart=/usr/local/bin/docker-compose up -d
 ExecStop=/usr/local/bin/docker-compose down
 TimeoutStartSec=0
+User=ubuntu
+Group=ubuntu
 
 [Install]
 WantedBy=multi-user.target
@@ -112,3 +128,5 @@ EOL
 
 # Enable the service
 systemctl enable strapi.service
+
+echo "User data script completed!"

@@ -52,46 +52,50 @@ jobs:
         terraform_version: ${{ env.TF_VERSION }}
 
     - name: Terraform Init
-      working-directory: ./terraform-strapi  # Changed from ./terraform
+      working-directory: ./terraform-strapi
       run: |
         terraform init
 
     - name: Terraform Workspace
-      working-directory: ./terraform-strapi  # Changed from ./terraform
+      working-directory: ./terraform-strapi
       run: |
-        terraform workspace select ${{ github.event.inputs.environment }} || terraform workspace new ${{ github.event.inputs.environment }}
+        # Use -or-create flag to avoid error when workspace doesn't exist
+        terraform workspace select -or-create ${{ github.event.inputs.environment }}
 
     - name: Terraform Plan
       if: github.event.inputs.action == 'plan'
-      working-directory: ./terraform-strapi  # Changed from ./terraform
+      working-directory: ./terraform-strapi
       run: |
         terraform plan \
           -var="docker_image=${{ secrets.DOCKER_USERNAME }}/strapi-app:${{ github.event.inputs.image_tag }}" \
           -var="environment=${{ github.event.inputs.environment }}" \
+          -var="key_name=${{ secrets.AWS_KEY_NAME || 'strapi-key' }}" \
           -out=tfplan
 
     - name: Terraform Apply
       if: github.event.inputs.action == 'apply'
-      working-directory: ./terraform-strapi  # Changed from ./terraform
+      working-directory: ./terraform-strapi
       run: |
         terraform plan \
           -var="docker_image=${{ secrets.DOCKER_USERNAME }}/strapi-app:${{ github.event.inputs.image_tag }}" \
           -var="environment=${{ github.event.inputs.environment }}" \
+          -var="key_name=${{ secrets.AWS_KEY_NAME || 'strapi-key' }}" \
           -out=tfplan
         
         terraform apply -auto-approve tfplan
 
     - name: Terraform Destroy
       if: github.event.inputs.action == 'destroy'
-      working-directory: ./terraform-strapi  # Changed from ./terraform
+      working-directory: ./terraform-strapi
       run: |
         terraform destroy -auto-approve \
           -var="docker_image=${{ secrets.DOCKER_USERNAME }}/strapi-app:${{ github.event.inputs.image_tag }}" \
-          -var="environment=${{ github.event.inputs.environment }}"
+          -var="environment=${{ github.event.inputs.environment }}" \
+          -var="key_name=${{ secrets.AWS_KEY_NAME || 'strapi-key' }}"
 
     - name: Get Outputs
       if: github.event.inputs.action == 'apply'
-      working-directory: ./terraform-strapi  
+      working-directory: ./terraform-strapi
       id: outputs
       run: |
         echo "ec2_public_ip=$(terraform output -raw ec2_public_ip 2>/dev/null || echo 'Not available')" >> $GITHUB_OUTPUT
@@ -100,17 +104,17 @@ jobs:
     - name: Deployment Summary
       if: github.event.inputs.action == 'apply'
       run: |
-        echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
         echo "**Environment:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
         echo "**Docker Image:** \`${{ secrets.DOCKER_USERNAME }}/strapi-app:${{ github.event.inputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
         echo "**EC2 Public IP:** http://${{ steps.outputs.outputs.ec2_public_ip }}" >> $GITHUB_STEP_SUMMARY
         echo "**EC2 Instance ID:** ${{ steps.outputs.outputs.ec2_instance_id }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Access your application:" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔗 Access your application:" >> $GITHUB_STEP_SUMMARY
         echo "- **Strapi Admin:** http://${{ steps.outputs.outputs.ec2_public_ip }}:1337/admin" >> $GITHUB_STEP_SUMMARY
         echo "- **API Endpoint:** http://${{ steps.outputs.outputs.ec2_public_ip }}:1337/api" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### SSH Access:" >> $GITHUB_STEP_SUMMARY
+        echo "### 📝 SSH Access:" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
         echo "ssh -i your-key.pem ec2-user@${{ steps.outputs.outputs.ec2_public_ip }}" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
